@@ -1,0 +1,849 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ConnectedGradeGrid } from './GradeGrid';
+
+type SubjectOption = {
+  id: string;
+  name: string;
+  code: string;
+  academicYear?: string;
+  _count?: {
+    enrollments?: number;
+    grades?: number;
+  };
+};
+
+type ActivityOption = {
+  id: string;
+  title: string;
+  description?: string | null;
+  date: string;
+  _count?: {
+    grades?: number;
+  };
+};
+
+type SubjectsResponse = {
+  data: SubjectOption[];
+};
+
+type ActivitiesResponse = {
+  data: ActivityOption[];
+};
+
+type LoginResponse = {
+  message: string;
+};
+
+type TeacherNoteType = 'ACADEMICA' | 'CONDUCTA' | 'ASISTENCIA' | 'OBSERVACION';
+type ParentVisibility = 'PRIVATE_TEACHERS' | 'SHARED_WITH_PARENTS';
+
+type TeacherStudentLite = {
+  studentProfileId: string;
+  enrollmentId: string;
+  studentName: string;
+};
+
+type TeacherStudentsLiteResponse = {
+  data: TeacherStudentLite[];
+};
+
+type TeacherNote = {
+  id: string;
+  subjectId: string;
+  studentProfileId: string;
+  type: TeacherNoteType;
+  visibility: ParentVisibility;
+  title: string;
+  content: string;
+  eventDate: string;
+  readStatus?: {
+    parent: {
+      read: boolean;
+      readAt: string | null;
+      readerId: string | null;
+    };
+    student: {
+      read: boolean;
+      readAt: string | null;
+      readerId: string | null;
+    };
+  };
+};
+
+type TeacherNotesResponse = {
+  data: TeacherNote[];
+};
+
+type GradesPrefill = {
+  subjectId: string;
+  activityId: string;
+  student: string;
+};
+
+function readGradesPrefillFromQuery(): GradesPrefill {
+  if (typeof window === 'undefined') {
+    return { subjectId: '', activityId: '', student: '' };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return {
+    subjectId: params.get('subjectId') ?? '',
+    activityId: params.get('activityId') ?? '',
+    student: params.get('student') ?? '',
+  };
+}
+
+async function fetchSubjects(): Promise<SubjectOption[]> {
+  const response = await fetch('/api/v1/subjects', {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'No se pudieron cargar las materias.' }));
+    throw new Error(body?.error ?? `Error HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as SubjectsResponse;
+  return payload.data ?? [];
+}
+
+async function fetchActivities(subjectId: string): Promise<ActivityOption[]> {
+  const response = await fetch(`/api/v1/subjects/${subjectId}/activities`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'No se pudieron cargar las actividades.' }));
+    throw new Error(body?.error ?? `Error HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as ActivitiesResponse;
+  return payload.data ?? [];
+}
+
+async function createActivity(subjectId: string, title: string, description: string): Promise<ActivityOption> {
+  const response = await fetch(`/api/v1/subjects/${subjectId}/activities`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title,
+      description: description.trim() ? description.trim() : undefined,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'No se pudo crear la actividad.' }));
+    throw new Error(body?.error ?? `Error HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as { data: ActivityOption };
+  return payload.data;
+}
+
+async function fetchTeacherStudents(subjectId: string): Promise<TeacherStudentLite[]> {
+  const response = await fetch(`/api/v1/subjects/teacher/students?page=1&pageSize=100&sortBy=studentName&sortDir=asc&subjectId=${subjectId}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'No se pudieron cargar los estudiantes.' }));
+    throw new Error(body?.error ?? `Error HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as TeacherStudentsLiteResponse;
+  return payload.data ?? [];
+}
+
+async function fetchTeacherNotes(subjectId: string, studentProfileId: string): Promise<TeacherNote[]> {
+  const response = await fetch(`/api/v1/subjects/${subjectId}/students/${studentProfileId}/notes?page=1&pageSize=20`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'No se pudieron cargar las novedades.' }));
+    throw new Error(body?.error ?? `Error HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as TeacherNotesResponse;
+  return payload.data ?? [];
+}
+
+async function createTeacherNote(subjectId: string, studentProfileId: string, payload: {
+  type: TeacherNoteType;
+  visibility: ParentVisibility;
+  title: string;
+  content: string;
+}): Promise<void> {
+  const response = await fetch(`/api/v1/subjects/${subjectId}/students/${studentProfileId}/notes`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'No se pudo registrar la novedad.' }));
+    throw new Error(body?.error ?? `Error HTTP ${response.status}`);
+  }
+}
+
+function CreateActivityModal({
+  open,
+  onClose,
+  onSubmit,
+  loading,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (title: string, description: string) => Promise<void>;
+  loading: boolean;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setTitle('');
+      setDescription('');
+      setError(null);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="card-surface modal-card grades-modal-card">
+        <h3 className="grades-modal-title">Nueva actividad</h3>
+        <p className="grades-modal-subtitle">Crea una actividad para registrar notas por alumno.</p>
+
+        <div className="grades-modal-fields">
+          <label className="grades-label" htmlFor="activity-title">
+            Nombre de la actividad
+          </label>
+          <input
+            id="activity-title"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Ejemplo: Tarea 1 - Fracciones"
+            className="grades-input"
+          />
+
+          <label className="grades-label" htmlFor="activity-description">
+            Descripcion
+          </label>
+          <textarea
+            id="activity-description"
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={4}
+            placeholder="Detalles opcionales de la actividad"
+            className="grades-input grades-textarea"
+          />
+
+          {error && <p className="grades-error-text">{error}</p>}
+        </div>
+
+        <div className="modal-actions">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="btn-ghost"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={async () => {
+              if (title.trim().length < 2) {
+                setError('El nombre debe tener al menos 2 caracteres.');
+                return;
+              }
+
+              setError(null);
+              try {
+                await onSubmit(title.trim(), description);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'No se pudo crear la actividad.');
+              }
+            }}
+            disabled={loading}
+            className="btn-success"
+          >
+            {loading ? 'Creando...' : 'Crear actividad'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function TeacherGradesPage() {
+  const [prefill] = useState<GradesPrefill>(() => readGradesPrefillFromQuery());
+  const activityPrefillAppliedRef = useRef(false);
+
+  const [subjects, setSubjects] = useState<SubjectOption[]>([]);
+  const [activities, setActivities] = useState<ActivityOption[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
+  const [selectedActivityId, setSelectedActivityId] = useState<string>('');
+  const [students, setStudents] = useState<TeacherStudentLite[]>([]);
+  const [selectedStudentProfileId, setSelectedStudentProfileId] = useState('');
+  const [notes, setNotes] = useState<TeacherNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [noteType, setNoteType] = useState<TeacherNoteType>('ACADEMICA');
+  const [noteVisibility, setNoteVisibility] = useState<ParentVisibility>('SHARED_WITH_PARENTS');
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  const [loading, setLoading] = useState(true);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
+
+  const [authRequired, setAuthRequired] = useState(false);
+  const [email, setEmail] = useState('teacher.demo@eightcore.local');
+  const [password, setPassword] = useState('demo_hash');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+
+  const loadSubjects = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await fetchSubjects();
+      setSubjects(data);
+      setAuthRequired(false);
+
+      if (data.length > 0) {
+        setSelectedSubjectId(prev => {
+          if (prev && data.some(subject => subject.id === prev)) {
+            return prev;
+          }
+
+          if (prefill.subjectId && data.some(subject => subject.id === prefill.subjectId)) {
+            return prefill.subjectId;
+          }
+
+          return data[0].id;
+        });
+      } else {
+        setSelectedSubjectId('');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'No se pudieron cargar las materias.';
+      if (message.toLowerCase().includes('no autenticado') || message.toLowerCase().includes('token')) {
+        setAuthRequired(true);
+        setError(null);
+        return;
+      }
+
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [prefill.subjectId]);
+
+  const loadActivities = useCallback(async (subjectId: string) => {
+    if (!subjectId) {
+      setActivities([]);
+      setSelectedActivityId('');
+      return;
+    }
+
+    setActivityLoading(true);
+    setActivityError(null);
+
+    try {
+      const data = await fetchActivities(subjectId);
+      const hasPrefillForCurrentSubject = prefill.subjectId === subjectId && prefill.activityId.length > 0;
+      const canApplyPrefill = hasPrefillForCurrentSubject
+        && !activityPrefillAppliedRef.current
+        && data.some(activity => activity.id === prefill.activityId);
+
+      if (canApplyPrefill) {
+        activityPrefillAppliedRef.current = true;
+      }
+
+      setActivities(data);
+      setSelectedActivityId(prev => {
+        if (canApplyPrefill) return prefill.activityId;
+        return data.some(a => a.id === prev) ? prev : (data[0]?.id ?? '');
+      });
+    } catch (err) {
+      setActivities([]);
+      setSelectedActivityId('');
+      setActivityError(err instanceof Error ? err.message : 'No se pudieron cargar las actividades.');
+    } finally {
+      setActivityLoading(false);
+    }
+  }, [prefill.activityId, prefill.subjectId]);
+
+  const loadStudentsAndNotes = useCallback(async (subjectId: string) => {
+    if (!subjectId) {
+      setStudents([]);
+      setSelectedStudentProfileId('');
+      setNotes([]);
+      return;
+    }
+
+    setNotesLoading(true);
+    setNotesError(null);
+    try {
+      const studentData = await fetchTeacherStudents(subjectId);
+      setStudents(studentData);
+
+      const preferred = prefill.student
+        ? studentData.find(student => student.enrollmentId === prefill.student)
+        : null;
+      const resolvedStudentId = preferred?.studentProfileId ?? studentData[0]?.studentProfileId ?? '';
+      setSelectedStudentProfileId(resolvedStudentId);
+
+      if (!resolvedStudentId) {
+        setNotes([]);
+        return;
+      }
+
+      const noteData = await fetchTeacherNotes(subjectId, resolvedStudentId);
+      setNotes(noteData);
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : 'No se pudieron cargar las novedades.');
+      setNotes([]);
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [prefill.student]);
+
+  const reloadNotes = useCallback(async (subjectId: string, studentProfileId: string) => {
+    if (!subjectId || !studentProfileId) {
+      setNotes([]);
+      return;
+    }
+    setNotesLoading(true);
+    setNotesError(null);
+    try {
+      const noteData = await fetchTeacherNotes(subjectId, studentProfileId);
+      setNotes(noteData);
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : 'No se pudieron cargar las novedades.');
+      setNotes([]);
+    } finally {
+      setNotesLoading(false);
+    }
+  }, []);
+
+  const handleLogin = useCallback(async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      const response = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ error: 'No se pudo iniciar sesion.' }));
+        throw new Error(body?.error ?? 'No se pudo iniciar sesion.');
+      }
+
+      await response.json() as LoginResponse;
+      await loadSubjects();
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'No se pudo iniciar sesion.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [email, password, loadSubjects]);
+
+  useEffect(() => {
+    void loadSubjects();
+  }, [loadSubjects]);
+
+  useEffect(() => {
+    void loadActivities(selectedSubjectId);
+  }, [selectedSubjectId, loadActivities]);
+
+  useEffect(() => {
+    void loadStudentsAndNotes(selectedSubjectId);
+  }, [selectedSubjectId, loadStudentsAndNotes]);
+
+  useEffect(() => {
+    if (!selectedSubjectId || !selectedStudentProfileId) return;
+    void reloadNotes(selectedSubjectId, selectedStudentProfileId);
+  }, [selectedSubjectId, selectedStudentProfileId, reloadNotes]);
+
+  const selectedSubject = useMemo(
+    () => subjects.find(s => s.id === selectedSubjectId) ?? null,
+    [subjects, selectedSubjectId],
+  );
+
+  const selectedActivity = useMemo(
+    () => activities.find(a => a.id === selectedActivityId) ?? null,
+    [activities, selectedActivityId],
+  );
+
+  const selectedStudent = useMemo(
+    () => students.find(student => student.studentProfileId === selectedStudentProfileId) ?? null,
+    [students, selectedStudentProfileId],
+  );
+
+  const handleSaveNote = useCallback(async () => {
+    if (!selectedSubjectId || !selectedStudentProfileId || !noteTitle.trim() || !noteContent.trim()) {
+      setNotesError('Selecciona estudiante y completa titulo y detalle de la novedad.');
+      return;
+    }
+
+    setNoteSaving(true);
+    setNotesError(null);
+    try {
+      await createTeacherNote(selectedSubjectId, selectedStudentProfileId, {
+        type: noteType,
+        visibility: noteVisibility,
+        title: noteTitle.trim(),
+        content: noteContent.trim(),
+      });
+
+      setNoteTitle('');
+      setNoteContent('');
+      await reloadNotes(selectedSubjectId, selectedStudentProfileId);
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : 'No se pudo registrar la novedad.');
+    } finally {
+      setNoteSaving(false);
+    }
+  }, [noteContent, noteTitle, noteType, noteVisibility, reloadNotes, selectedStudentProfileId, selectedSubjectId]);
+
+  return (
+    <section className="grades-dashboard-shell">
+      <CreateActivityModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        loading={createLoading}
+        onSubmit={async (title, description) => {
+          if (!selectedSubjectId) return;
+          setCreateLoading(true);
+          try {
+            const created = await createActivity(selectedSubjectId, title, description);
+            await loadActivities(selectedSubjectId);
+            setSelectedActivityId(created.id);
+            setCreateOpen(false);
+          } finally {
+            setCreateLoading(false);
+          }
+        }}
+      />
+
+      <aside className="grades-sidebar-panel">
+        <div className="grades-sidebar-brand">
+          <p className="grades-sidebar-eyebrow">EightCore</p>
+          <h2 className="grades-sidebar-title">Panel Docente</h2>
+        </div>
+
+        <nav className="grades-sidebar-nav" aria-label="Navegacion principal">
+          <button className="grades-sidebar-item" onClick={() => window.location.assign('/')}>Inicio</button>
+          <button className="grades-sidebar-item grades-sidebar-item-active">Calificaciones</button>
+          <button className="grades-sidebar-item" onClick={() => window.location.assign('/?view=grades')}>Vista actual</button>
+        </nav>
+
+        <div className="grades-sidebar-foot">
+          <p>Docente</p>
+          <p className="grades-sidebar-foot-muted">Gestion academica</p>
+        </div>
+      </aside>
+
+      <main className="grades-main-panel">
+        <header className="card-surface grades-top-header">
+          <div>
+            <p className="section-eyebrow">Modulo academico</p>
+            <h1 className="section-title">Panel de Calificaciones - EightCore</h1>
+            <p className="panel-subtitle">Gestiona actividades y notas por alumno con guardado automatico.</p>
+          </div>
+
+          {!loading && !error && !authRequired && subjects.length > 0 && (
+            <div className="grades-controls-grid">
+              <div className="subject-picker grades-picker">
+                <label htmlFor="subject-select">
+                  Materia
+                </label>
+                <select
+                  id="subject-select"
+                  value={selectedSubjectId}
+                  onChange={e => setSelectedSubjectId(e.target.value)}
+                >
+                  {subjects.map(subject => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name} ({subject.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grades-picker grades-picker-wide">
+                <div className="grades-activity-head">
+                  <label htmlFor="activity-select">
+                    Actividad
+                  </label>
+                  <button
+                    onClick={() => setCreateOpen(true)}
+                    className="btn-ghost"
+                  >
+                    + Nueva actividad
+                  </button>
+                </div>
+                <select
+                  id="activity-select"
+                  value={selectedActivityId}
+                  onChange={e => setSelectedActivityId(e.target.value)}
+                  disabled={activityLoading || activities.length === 0}
+                >
+                  {activities.length === 0 && <option value="">Sin actividades</option>}
+                  {activities.map(activity => (
+                    <option key={activity.id} value={activity.id}>
+                      {activity.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+        </header>
+
+        <div className="grades-page">
+          {loading && (
+            <div className="card-surface grades-feedback-card">
+              Cargando panel de calificaciones...
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="card-surface error-banner grades-feedback-card">
+              <p>{error}</p>
+              <button
+                onClick={() => void loadSubjects()}
+                className="btn-ghost"
+              >
+                Reintentar
+              </button>
+            </div>
+          )}
+
+          {!loading && authRequired && (
+            <div className="card-surface login-panel grades-login-panel">
+              <h2>Inicia sesion para continuar</h2>
+              <p>
+                El backend protege estas rutas. Usa una cuenta de profesor para cargar el panel.
+              </p>
+
+              <div className="login-grid">
+                <label htmlFor="login-email">
+                  Correo
+                </label>
+                <input
+                  id="login-email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="grades-input"
+                />
+
+                <label htmlFor="login-password">
+                  Contrasena
+                </label>
+                <input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="grades-input"
+                />
+
+                {authError && <p className="grades-error-text">{authError}</p>}
+
+                <button
+                  onClick={() => void handleLogin()}
+                  disabled={authLoading}
+                  className="btn-success"
+                >
+                  {authLoading ? 'Ingresando...' : 'Ingresar'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && !authRequired && subjects.length === 0 && (
+            <div className="card-surface grades-feedback-card">
+              <h2>Sin materias activas</h2>
+              <p>
+                No tienes materias asignadas todavia. Crea una materia o activa una existente para cargar notas.
+              </p>
+            </div>
+          )}
+
+          {!loading && !error && !authRequired && subjects.length > 0 && selectedSubject && (
+            <div className="card-surface grades-header-card">
+              <div className="grades-subject-stats">
+                <div className="grades-stat-pill">
+                  Codigo: <span>{selectedSubject.code}</span>
+                </div>
+                <div className="grades-stat-pill">
+                  Ciclo: <span>{selectedSubject.academicYear ?? 'N/A'}</span>
+                </div>
+                <div className="grades-stat-pill">
+                  Inscritos: <span>{selectedSubject._count?.enrollments ?? 0}</span>
+                </div>
+                <div className="grades-stat-pill">
+                  Registros: <span>{selectedActivity?._count?.grades ?? 0}</span>
+                </div>
+              </div>
+
+              {activityError && <p className="grades-error-text">{activityError}</p>}
+            </div>
+          )}
+
+          {!loading && !error && !authRequired && !activityLoading && activities.length === 0 && selectedSubjectId && (
+            <div className="card-surface alert-panel grades-alert-panel">
+              <div>
+                <p className="grades-alert-title">Esta materia aun no tiene actividades.</p>
+                <p className="grades-alert-text">Crea una actividad para poder cargar notas en la grilla.</p>
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && !authRequired && selectedSubjectId && selectedActivityId && (
+            <div className="grades-main-card-wrap">
+              <ConnectedGradeGrid
+                subjectId={selectedSubjectId}
+                activityId={selectedActivityId}
+                activityTitle={selectedActivity?.title ?? 'Actividad'}
+                initialSearch={prefill.student}
+              />
+            </div>
+          )}
+
+          {!loading && !error && !authRequired && selectedSubjectId && (
+            <section className="card-surface note-layout grades-notes-panel">
+              <div className="note-header">
+                <h3 className="panel-title">Registro de novedades</h3>
+                <p className="panel-subtitle">Gestion y seguimiento de lectura por padre y alumno.</p>
+              </div>
+
+              <div className="note-form-grid">
+                <label htmlFor="grades-note-student">Estudiante</label>
+                <select
+                  id="grades-note-student"
+                  value={selectedStudentProfileId}
+                  onChange={e => setSelectedStudentProfileId(e.target.value)}
+                  disabled={students.length === 0}
+                >
+                  {students.length === 0 && <option value="">Sin estudiantes disponibles</option>}
+                  {students.map(student => (
+                    <option key={student.studentProfileId} value={student.studentProfileId}>
+                      {student.studentName} ({student.enrollmentId})
+                    </option>
+                  ))}
+                </select>
+
+                <label htmlFor="grades-note-type">Tipo</label>
+                <select id="grades-note-type" value={noteType} onChange={e => setNoteType(e.target.value as TeacherNoteType)}>
+                  <option value="ACADEMICA">Academica</option>
+                  <option value="CONDUCTA">Conducta</option>
+                  <option value="ASISTENCIA">Asistencia</option>
+                  <option value="OBSERVACION">Observacion</option>
+                </select>
+
+                <label htmlFor="grades-note-visibility">Visibilidad</label>
+                <select id="grades-note-visibility" value={noteVisibility} onChange={e => setNoteVisibility(e.target.value as ParentVisibility)}>
+                  <option value="SHARED_WITH_PARENTS">Compartir con padres</option>
+                  <option value="PRIVATE_TEACHERS">Solo docentes</option>
+                </select>
+
+                <label htmlFor="grades-note-title">Titulo</label>
+                <input
+                  id="grades-note-title"
+                  value={noteTitle}
+                  onChange={e => setNoteTitle(e.target.value)}
+                  placeholder="Ej: Seguimiento de participacion"
+                />
+
+                <label htmlFor="grades-note-content">Detalle</label>
+                <textarea
+                  id="grades-note-content"
+                  rows={4}
+                  value={noteContent}
+                  onChange={e => setNoteContent(e.target.value)}
+                  placeholder="Describe avances, alertas o recomendaciones."
+                />
+
+                <button className="btn-success" onClick={() => void handleSaveNote()} disabled={noteSaving || !selectedStudentProfileId}>
+                  {noteSaving ? 'Guardando...' : 'Registrar novedad'}
+                </button>
+              </div>
+
+              {notesError && <p className="grades-error-text">{notesError}</p>}
+
+              <div className="note-list">
+                {notesLoading && <p className="panel-subtitle">Cargando novedades...</p>}
+
+                {!notesLoading && notes.length === 0 && (
+                  <p className="panel-subtitle">
+                    {selectedStudent ? `Sin novedades para ${selectedStudent.studentName}.` : 'Sin novedades para el estudiante seleccionado.'}
+                  </p>
+                )}
+
+                {!notesLoading && notes.map(note => (
+                  <article key={note.id} className="note-item">
+                    <div className="note-item-top">
+                      <strong>{note.title}</strong>
+                      <span>{new Date(note.eventDate).toLocaleDateString()}</span>
+                    </div>
+                    <p>{note.content}</p>
+                    <div className="note-tags">
+                      <span>{note.type}</span>
+                      <span>{note.visibility === 'SHARED_WITH_PARENTS' ? 'Visible para padres' : 'Interna docente'}</span>
+                      <span>Padre: {note.readStatus?.parent.read ? 'Leida' : 'No leida'}</span>
+                      <span>Alumno: {note.readStatus?.student.read ? 'Leida' : 'No leida'}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </main>
+    </section>
+  );
+}
+
+export default TeacherGradesPage;
