@@ -1,0 +1,66 @@
+Roles y funcionalidades
+
+La plataforma implementa un Control de Acceso Basado en Roles (RBAC). Cada usuario accede con correo y contraseña, y el sistema le muestra únicamente las secciones que le corresponden.
+
+Administrador
+
+Gestiona la estructura completa de la institución.
+
+FunciónDescripciónCursos y paralelosCrea los niveles (ej. 1.º de Bachillerato) y sus respectivos paralelosMateriasCrea las materias de cada paralelo y asigna un docente a cada unaUsuariosRegistra profesores y alumnos; ubica a cada alumno en su paraleloAnuncios globalesPublica avisos dirigidos a toda la institución
+
+Profesor (TeacherGradesPage)
+
+Panel docente principal, desde el cual el profesor gestiona calificaciones, actividades y novedades.
+
+FunciónDescripciónGestión de materiasConsulta las materias asignadas con código, ciclo académico y número de inscritosActividades de evaluaciónCrea actividades (tareas, exámenes, trabajos en clase) con título y descripciónGrilla de calificacionesIngresa y edita notas por alumno con guardado automático desde ConnectedGradeGridIndicadores de estadoVisualiza el estado de cada estudiante: Aprobado (≥ 7.0), En Riesgo (6.0–6.9), Reprobado (< 6.0)Promedios ponderadosEl sistema calcula automáticamente promedios simples y ponderados por categoría de evaluaciónRegistro de novedadesDocumenta observaciones por alumno con tipo (ACADEMICA, CONDUCTA, ASISTENCIA, OBSERVACION) y visibilidad configurableVisibilidad de novedadesDefine si una novedad es SHARED_WITH_PARENTS (visible para padres) o PRIVATE_TEACHERS (interna)Estado de lecturaRastrea si el padre y el alumno han leído cada novedad registradaAnuncios de materiaPublica avisos dirigidos a los alumnos de una materia específica
+
+Alumno
+
+Acceso de consulta a su propio historial académico.
+
+FunciónDescripciónMis materiasVe las materias de su paralelo y las actividades publicadasCalificacionesConsulta sus notas por categoría y su promedio en cada materiaAnunciosVisualiza los anuncios globales de la institución y los de sus materias
+
+Padre / Representante
+
+Seguimiento del desempeño de su representado.
+
+FunciónDescripciónCalificacionesConsulta las notas y el promedio del alumno en cada materiaNovedadesRecibe las novedades marcadas como visibles por el docenteEstado de lecturaEl sistema registra cuándo el padre lee cada novedad
+
+Mensajería interna (todos los roles)
+
+Sistema de mensajería privada de persona a persona dentro de la plataforma, con bandeja de entrada, mensajes enviados e indicador de mensajes no leídos. Implementado con WebSockets (Socket.IO) para comunicación en tiempo real.
+
+
+Stack tecnológico
+
+Frontend
+
+
+React con Next.js (App Router) · TypeScript
+Vite como bundler en el entorno de desarrollo del prototipo
+Tailwind CSS para estilos
+Recharts para visualización de progreso de notas (gráficos de líneas y barras)
+
+
+Backend
+
+
+Node.js con Express.js · TypeScript
+Socket.IO para mensajería y actualizaciones en tiempo real
+Middleware de seguridad: helmet, cors, rate-limiting
+
+
+Base de datos
+
+
+PostgreSQL como base de datos relacional
+Prisma ORM para migraciones y modelado de datos
+
+
+Autenticación y seguridad
+
+
+JWT (JSON Web Tokens) almacenados en cookies HTTP-only
+Refresh Tokens para renovación de sesión sin interrupciones
+bcrypt para hashing de contraseñas
+RBAC con middleware verifyAccessToken y requireRoles
